@@ -1,50 +1,43 @@
-FROM ubuntu:trusty
+FROM alfg/ffmpeg:latest
+MAINTAINER Alfred Gutierrez <alf.g.jr@gmail.com>
 
-ENV DEBIAN_FRONTEND noninteractive
-ENV PATH $PATH:/usr/local/nginx/sbin
+ENV NGINX_VERSION 1.10.2
+ENV NGINX_RTMP_VERSION 1.1.10
 
 EXPOSE 1935
 EXPOSE 80
 
-# create directories
-RUN mkdir /src /config /logs /data /static
+RUN mkdir -p /opt/data && mkdir /www
 
-# update and upgrade packages
-RUN apt-get update && \
-  apt-get upgrade -y && \
-  apt-get clean && \
-  apt-get install -y --no-install-recommends build-essential \
-  wget software-properties-common && \
-# ffmpeg
-  add-apt-repository ppa:mc3man/trusty-media && \
-  apt-get update && \
-  apt-get install -y --no-install-recommends ffmpeg && \
-# nginx dependencies
-  apt-get install -y --no-install-recommends libpcre3-dev \
-  zlib1g-dev libssl-dev wget && \
-  rm -rf /var/lib/apt/lists/*
+RUN	apk add --update	\
+  gcc	binutils-libs binutils build-base	libgcc make pkgconf pkgconfig \
+  openssl openssl-dev ca-certificates pcre \
+  musl-dev libc-dev pcre-dev zlib-dev
 
-# get nginx source
-WORKDIR /src
-RUN wget http://nginx.org/download/nginx-1.6.2.tar.gz && \
-  tar zxf nginx-1.6.2.tar.gz && \
-  rm nginx-1.6.2.tar.gz && \
-# get nginx-rtmp module
-  wget https://github.com/arut/nginx-rtmp-module/archive/v1.1.6.tar.gz && \
-  tar zxf v1.1.6.tar.gz && \
-  rm v1.1.6.tar.gz
+# Get nginx source.
+RUN cd /tmp && wget http://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz \
+  && tar zxf nginx-${NGINX_VERSION}.tar.gz \
+  && rm nginx-${NGINX_VERSION}.tar.gz
 
-# compile nginx
-WORKDIR /src/nginx-1.6.2
-RUN ./configure --add-module=/src/nginx-rtmp-module-1.1.6 \
-  --conf-path=/config/nginx.conf \
-  --error-log-path=/logs/error.log \
-  --http-log-path=/logs/access.log && \
-  make && \
-  make install
+# Get nginx-rtmp module.
+RUN cd /tmp && wget https://github.com/arut/nginx-rtmp-module/archive/v${NGINX_RTMP_VERSION}.tar.gz \
+  && tar zxf v${NGINX_RTMP_VERSION}.tar.gz && rm v${NGINX_RTMP_VERSION}.tar.gz
 
-ADD nginx.conf /config/nginx.conf
-ADD static /static
+# Compile nginx with nginx-rtmp module.
+RUN cd /tmp/nginx-${NGINX_VERSION} \
+  && ./configure \
+  --prefix=/opt/nginx \
+  --add-module=/tmp/nginx-rtmp-module-${NGINX_RTMP_VERSION} \
+  --with-http_ssl_module \
+  --with-http_v2_module \
+  --conf-path=/opt/nginx/nginx.conf --error-log-path=/opt/nginx/logs/error.log --http-log-path=/opt/nginx/logs/access.log \
+  --with-debug
+RUN cd /tmp/nginx-${NGINX_VERSION} && make && make install
 
-WORKDIR /
-CMD "nginx"
+# Cleanup.
+RUN rm -rf /var/cache/* /tmp/*
+
+ADD nginx.conf /opt/nginx/nginx.conf
+ADD static /www/static
+
+CMD ["/opt/nginx/sbin/nginx"]
